@@ -9,9 +9,21 @@ import SwiftUI
 
 @main
 struct TriggerApp: App {
+    @StateObject private var eventStore = EventStore()
+    @StateObject private var authStore = AuthStore()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            Group {
+                if authStore.isAuthenticated {
+                    ContentView()
+                        .environmentObject(eventStore)
+                } else {
+                    SignInWithAppleView()
+                }
+            }
+            .environmentObject(authStore)
         }
     }
 }
+

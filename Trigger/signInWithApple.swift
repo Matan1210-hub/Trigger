@@ -1,0 +1,183 @@
+//
+//  signInWithApple.swift
+//  Trigger
+//
+//  Created by Matan Cohen on 10/11/2025.
+//
+
+import SwiftUI
+import AuthenticationServices
+
+struct SignInWithAppleView: View {
+    @EnvironmentObject private var authStore: AuthStore
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color("green_L1"), Color("green_L2")],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 24) {
+                // Title with emphasized "Trigger"
+                HStack(spacing: 8) {
+                    Text("welcome to")
+                        .font(.system(.largeTitle, design: .rounded).bold())
+                        .foregroundStyle(.primary)
+
+                    Text("Trigger")
+                        .font(.system(size: 48, weight: .heavy, design: .rounded))
+                        .foregroundColor(Color("green_L4"))
+                        .shadow(color: Color.black.opacity(0.15), radius: 6, x: 0, y: 4)
+                }
+                .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
+
+                // Sign in with Apple button
+                SignInWithAppleButtonView(
+                    onRequest: { request in
+                        // Configure requested scopes as needed
+                        request.requestedScopes = [.fullName, .email]
+                    },
+                    onCompletion: { result in
+                        switch result {
+                        case .success(let auth):
+                            handleAuthorization(auth)
+                        case .failure(let error):
+                            handleError(error)
+                        }
+                    }
+                )
+                .frame(height: 52)
+                .padding(.top, 8)
+                .padding(.horizontal, 0)
+            }
+            .padding(.horizontal, 20)
+        }
+    }
+
+    private func handleAuthorization(_ auth: ASAuthorization) {
+        if let credential = auth.credential as? ASAuthorizationAppleIDCredential {
+            // Persist the stable user identifier that Apple provides
+            let userID = credential.user
+            authStore.setAuthenticated(userID: userID)
+            // Optional: You can also handle email/fullName on first authorization
+            // let email = credential.email
+            // let fullName = credential.fullName
+        }
+    }
+
+    private func handleError(_ error: Error) {
+        // TODO: Present an error UI or log as appropriate
+        // print("Sign in with Apple failed:", error.localizedDescription)
+    }
+}
+
+private struct SignInWithAppleButtonView: View {
+    var onRequest: (ASAuthorizationAppleIDRequest) -> Void
+    var onCompletion: (Result<ASAuthorization, Error>) -> Void
+
+    var body: some View {
+        SignInWithAppleButtonRepresentable(onRequest: onRequest, onCompletion: onCompletion)
+            .signInWithAppleButtonStyle(.whiteOutline) // Adjust style to fit your design
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: 4)
+            .accessibilityLabel("Sign up with Apple")
+    }
+}
+
+private struct SignInWithAppleButtonRepresentable: UIViewRepresentable {
+    var onRequest: (ASAuthorizationAppleIDRequest) -> Void
+    var onCompletion: (Result<ASAuthorization, Error>) -> Void
+
+    func makeUIView(context: Context) -> ASAuthorizationAppleIDButton {
+        let button = ASAuthorizationAppleIDButton(type: .signUp, style: .white)
+        button.addTarget(context.coordinator, action: #selector(Coordinator.didTapButton), for: .touchUpInside)
+        return button
+    }
+
+    func updateUIView(_ uiView: ASAuthorizationAppleIDButton, context: Context) {
+        // No dynamic updates needed right now
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onRequest: onRequest, onCompletion: onCompletion)
+    }
+
+    final class Coordinator: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+        private let onRequest: (ASAuthorizationAppleIDRequest) -> Void
+        private let onCompletion: (Result<ASAuthorization, Error>) -> Void
+
+        init(onRequest: @escaping (ASAuthorizationAppleIDRequest) -> Void,
+             onCompletion: @escaping (Result<ASAuthorization, Error>) -> Void) {
+            self.onRequest = onRequest
+            self.onCompletion = onCompletion
+        }
+
+        @objc func didTapButton() {
+            let provider = ASAuthorizationAppleIDProvider()
+            let request = provider.createRequest()
+            onRequest(request)
+
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            controller.delegate = self
+            controller.presentationContextProvider = self
+            controller.performRequests()
+        }
+
+        // MARK: - ASAuthorizationControllerDelegate
+
+        func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+            onCompletion(.success(authorization))
+        }
+
+        func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+            onCompletion(.failure(error))
+        }
+
+        // MARK: - Presentation Context
+
+        func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+            // Prefer the key window if available
+            if let keyWindow = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .flatMap({ $0.windows })
+                .first(where: { $0.isKeyWindow }) {
+                return keyWindow
+            }
+
+            // Otherwise, use the first window in the first window scene; if none, create a transient one bound to that scene.
+            if let windowScene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first {
+
+                if let anyWindow = windowScene.windows.first {
+                    return anyWindow
+                }
+
+                // Create a transient window bound to the scene (avoids deprecated init()).
+                let transient = UIWindow(windowScene: windowScene)
+                // Do not present this window; it's just an anchor.
+                return transient
+            }
+
+            // Extremely rare fallback when no scenes are connected.
+            assertionFailure("No connected UIWindowScene available for presentation.")
+            if #available(iOS 26.0, *) {
+                // Return an empty ASPresentationAnchor; controller will likely fail gracefully.
+                return ASPresentationAnchor()
+            } else {
+                // Older systems allow a scene-less UIWindow as a last resort.
+                return UIWindow()
+            }
+        }
+    }
+}
+
+#Preview {
+    SignInWithAppleView()
+        .environmentObject(AuthStore())
+}
