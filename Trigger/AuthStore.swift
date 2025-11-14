@@ -12,29 +12,45 @@ import AuthenticationServices
 final class AuthStore: ObservableObject {
     @Published private(set) var isAuthenticated: Bool = false
     @Published private(set) var appleUserID: String?
+    @Published private(set) var fullName: String?
 
-    private let userDefaultsKey = "appleUserID"
+    private let userDefaultsKeyUserID = "appleUserID"
+    private let userDefaultsKeyFullName = "appleFullName"
 
     init() {
         // Load persisted user ID
-        if let stored = UserDefaults.standard.string(forKey: userDefaultsKey), !stored.isEmpty {
+        if let stored = UserDefaults.standard.string(forKey: userDefaultsKeyUserID), !stored.isEmpty {
             self.appleUserID = stored
             self.isAuthenticated = true
         } else {
             self.appleUserID = nil
             self.isAuthenticated = false
         }
+        // Load persisted full name (may be nil if never captured)
+        self.fullName = UserDefaults.standard.string(forKey: userDefaultsKeyFullName)
     }
 
     func setAuthenticated(userID: String) {
         self.appleUserID = userID
-        UserDefaults.standard.set(userID, forKey: userDefaultsKey)
+        UserDefaults.standard.set(userID, forKey: userDefaultsKeyUserID)
         self.isAuthenticated = true
+    }
+
+    func setFullNameIfAvailable(_ components: PersonNameComponents?) {
+        guard let components else { return }
+        let formatter = PersonNameComponentsFormatter()
+        formatter.style = .default
+        let name = formatter.string(from: components).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        self.fullName = name
+        UserDefaults.standard.set(name, forKey: userDefaultsKeyFullName)
     }
 
     func signOut() {
         self.appleUserID = nil
-        UserDefaults.standard.removeObject(forKey: userDefaultsKey)
+        self.fullName = nil
+        UserDefaults.standard.removeObject(forKey: userDefaultsKeyUserID)
+        UserDefaults.standard.removeObject(forKey: userDefaultsKeyFullName)
         self.isAuthenticated = false
     }
 }

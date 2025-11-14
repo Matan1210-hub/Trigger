@@ -64,9 +64,9 @@ struct SignInWithAppleView: View {
             // Persist the stable user identifier that Apple provides
             let userID = credential.user
             authStore.setAuthenticated(userID: userID)
-            // Optional: You can also handle email/fullName on first authorization
-            // let email = credential.email
-            // let fullName = credential.fullName
+
+            // Persist full name if provided (only available on first sign-in)
+            authStore.setFullNameIfAvailable(credential.fullName)
         }
     }
 
@@ -158,19 +158,14 @@ private struct SignInWithAppleButtonRepresentable: UIViewRepresentable {
                     return anyWindow
                 }
 
-                // Create a transient window bound to the scene (avoids deprecated init()).
                 let transient = UIWindow(windowScene: windowScene)
-                // Do not present this window; it's just an anchor.
                 return transient
             }
 
-            // Extremely rare fallback when no scenes are connected.
             assertionFailure("No connected UIWindowScene available for presentation.")
             if #available(iOS 26.0, *) {
-                // Return an empty ASPresentationAnchor; controller will likely fail gracefully.
                 return ASPresentationAnchor()
             } else {
-                // Older systems allow a scene-less UIWindow as a last resort.
                 return UIWindow()
             }
         }
@@ -181,3 +176,4 @@ private struct SignInWithAppleButtonRepresentable: UIViewRepresentable {
     SignInWithAppleView()
         .environmentObject(AuthStore())
 }
+

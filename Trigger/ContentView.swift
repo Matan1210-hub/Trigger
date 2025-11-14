@@ -24,169 +24,174 @@ struct ContentView: View {
     // Animation for expansion/collapse
     private let expandAnimation = Animation.spring(response: 0.35, dampingFraction: 0.8, blendDuration: 0.2)
 
+    // Timeline constants
+    private let minuteHeight: CGFloat = 1.5 // points per minute (90 pt per hour)
+    private let hourLabelWidth: CGFloat = 52
+    private let trackCornerRadius: CGFloat = 16
+    private let eventMinDurationMinutes: Int = 15 // visual minimum if no endTime
+
+    // Scroll to now
+    @State private var initialScrolled = false
+
+    // Fixed 24-hour parser for any future string-to-Date conversions (not used by DatePicker flow)
+    private static let fixed24hParser: DateFormatter = {
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.calendar = Calendar(identifier: .gregorian)
+        df.timeZone = .current
+        df.dateFormat = "HH:mm"
+        return df
+    }()
+
+    // Localized time formatter for UI
+    private static let localizedTimeFormatter: DateFormatter = {
+        let df = DateFormatter()
+        df.locale = .current
+        df.timeStyle = .short
+        df.dateStyle = .none
+        return df
+    }()
+
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color("green_L1"), Color("green_L2")],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+        NavigationStack {
+            ZStack {
+                // Background gradient
+                LinearGradient(
+                    colors: [Color("green_L1"), Color("green_L2")],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
 
-            VStack(spacing: 16) {
-                // Header with avatar on the left and title shifted slightly right
-                HStack(spacing: 12) {
-                    // Placeholder avatar until we wire a real user image
-                    AvatarCircle()
-                        .frame(width: 36, height: 36)
-
-                    Text("Today's Schedule")
-                        .foregroundColor(Color("green_L4"))
-                        .font(.system(.title, design: .rounded).bold())
-                        .multilineTextAlignment(.leading)
-                        .padding(.leading, 2) // slight right shift
-                    Spacer()
-                }
-                .padding(.top, 24)
-                .padding(.horizontal, 20)
-
-                // Events section
-                ScrollView(showsIndicators: false) {
-                    LazyVStack(spacing: 24) {
-                        ForEach(anchorEventsForToday) { anchor in
-                            EventRowWithHabits(
-                                anchor: anchor,
-                                habits: habitsAttached(to: anchor.id)
-                            )
-                            .padding(.horizontal, 20)
+                VStack(spacing: 0) {
+                    // Header with avatar on the left and title
+                    HStack(spacing: 12) {
+                        // Navigate to profile when tapping avatar
+                        NavigationLink {
+                            UserProfileView()
+                                .toolbar(.hidden, for: .navigationBar)
+                        } label: {
+                            AvatarCircle()
+                                .frame(width: 36, height: 36)
                         }
+                        .buttonStyle(.plain)
 
-                        if anchorEventsForToday.isEmpty {
-                            Text("No events for today")
-                                .font(.system(.callout, design: .rounded))
-                                .foregroundStyle(.secondary)
-                                .padding(.top, 8)
-                                .padding(.horizontal, 20)
-                        }
+                        Text("Today's Schedule")
+                            .foregroundColor(Color.black)
+                            .font(.system(.title, design: .rounded).bold())
+                            .multilineTextAlignment(.leading)
+                            .padding(.leading, 2)
+                        Spacer()
                     }
-                    .padding(.bottom, 120) // leave space for FAB
-                }
+                    .padding(.top, 24)
+                    .padding(.horizontal, 20)
 
-                Spacer(minLength: 0)
+                    // Timeline
+                    TimelineDayView(
+                        events: eventsForCurrentWeekday(eventStore.events),
+                        minuteHeight: minuteHeight,
+                        hourLabelWidth: hourLabelWidth,
+                        eventMinDurationMinutes: eventMinDurationMinutes
+                    )
+                    .padding(.top, 12)
+
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        }
-        // Floating action area overlay
-        .overlay(alignment: .bottomTrailing) {
-            ZStack(alignment: .bottomTrailing) {
-                // Tappable dim background when expanded (optional subtlety)
-                if isExpanded {
-                    Color.black.opacity(0.0001)
-                        .ignoresSafeArea()
-                        .onTapGesture {
+            // Floating action area overlay
+            .overlay(alignment: .bottomTrailing) {
+                ZStack(alignment: .bottomTrailing) {
+                    if isExpanded {
+                        Color.black.opacity(0.0001)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                withAnimation(expandAnimation) {
+                                    isExpanded = false
+                                }
+                            }
+                    }
+
+                    // Satellite buttons
+                    Group {
+                        glassButton(
+                            systemName: "calendar",
+                            cornerRadius: buttonCornerRadius,
+                            size: buttonSize
+                        ) {
                             withAnimation(expandAnimation) {
                                 isExpanded = false
                             }
+                            isPresentingAddEvent = true
                         }
-                }
-
-                // Satellite buttons
-                Group {
-                    // Calendar button at a 45-degree angle up-left
-                    glassButton(
-                        systemName: "calendar",
-                        cornerRadius: buttonCornerRadius,
-                        size: buttonSize
-                    ) {
-                        // Calendar action
-                        withAnimation(expandAnimation) {
-                            isExpanded = false
-                        }
-                        // Present AddEvent modal
-                        isPresentingAddEvent = true
-                    }
-                    .offset(satelliteOffset(angleDegrees: 45, distance: satelliteDistance))
-                    .scaleEffect(isExpanded ? 1 : 0.6)
-                    .opacity(isExpanded ? 1 : 0)
-                    .rotationEffect(.degrees(isExpanded ? 0 : -12))
-                    .animation(expandAnimation, value: isExpanded)
-
-                    // Checkmark button at a 0 + 90 = 90-degree angle (straight up)
-                    glassButton(
-                        systemName: "checkmark",
-                        cornerRadius: buttonCornerRadius,
-                        size: buttonSize
-                    ) {
-                        // Checkmark action
-                        withAnimation(expandAnimation) {
-                            isExpanded = false
-                        }
-                        // Present AddHabit modal
-                        isPresentingAddHabit = true
-                    }
-                    .offset(satelliteOffset(angleDegrees: 90, distance: satelliteDistance))
-                    .scaleEffect(isExpanded ? 1 : 0.6)
-                    .opacity(isExpanded ? 1 : 0)
-                    .rotationEffect(.degrees(isExpanded ? 0 : -12))
-                    .animation(expandAnimation, value: isExpanded)
-                }
-                .allowsHitTesting(isExpanded) // only interactive when visible
-
-                // Main "+" button (stays fixed bottom-right)
-                Button(action: {
-                    withAnimation(expandAnimation) {
-                        isExpanded.toggle()
-                    }
-                }) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 22, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.primary)
-                        .frame(width: buttonSize, height: buttonSize)
-                        .background(glassBackground(cornerRadius: buttonCornerRadius))
-                        .shadow(color: .black.opacity(0.15), radius: 12, x: 0, y: 8)
-                        .rotationEffect(.degrees(isExpanded ? 45 : 0)) // subtle affordance
+                        .offset(satelliteOffset(angleDegrees: 45, distance: satelliteDistance))
+                        .scaleEffect(isExpanded ? 1 : 0.6)
+                        .opacity(isExpanded ? 1 : 0)
+                        .rotationEffect(.degrees(isExpanded ? 0 : -12))
                         .animation(expandAnimation, value: isExpanded)
+
+                        glassButton(
+                            systemName: "checkmark",
+                            cornerRadius: buttonCornerRadius,
+                            size: buttonSize
+                        ) {
+                            withAnimation(expandAnimation) {
+                                isExpanded = false
+                            }
+                            isPresentingAddHabit = true
+                        }
+                        .offset(satelliteOffset(angleDegrees: 90, distance: satelliteDistance))
+                        .scaleEffect(isExpanded ? 1 : 0.6)
+                        .opacity(isExpanded ? 1 : 0)
+                        .rotationEffect(.degrees(isExpanded ? 0 : -12))
+                        .animation(expandAnimation, value: isExpanded)
+                    }
+                    .allowsHitTesting(isExpanded)
+
+                    // Main "+" button
+                    Button(action: {
+                        withAnimation(expandAnimation) {
+                            isExpanded.toggle()
+                        }
+                    }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 22, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.primary)
+                            .frame(width: buttonSize, height: buttonSize)
+                            .background(glassBackground(cornerRadius: buttonCornerRadius))
+                            .shadow(color: .black.opacity(0.15), radius: 12, x: 0, y: 8)
+                            .rotationEffect(.degrees(isExpanded ? 45 : 0))
+                            .animation(expandAnimation, value: isExpanded)
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
+                .padding(.trailing, 20)
+                .padding(.bottom, 20)
             }
-            .padding(.trailing, 20)
-            .padding(.bottom, 20)
-        }
-        // Present AddEvent modal as full-height sheet
-        .sheet(isPresented: $isPresentingAddEvent) {
-            AddEvent { newEvent in
-                eventStore.add(newEvent)
+            // Present AddEvent modal as full-height sheet
+            .sheet(isPresented: $isPresentingAddEvent) {
+                AddEvent { newEvent in
+                    // If you ever receive times as strings, convert with fixed24hParser first:
+                    // let parsed = ContentView.fixed24hParser.date(from: "10:00")
+                    eventStore.add(newEvent)
+                }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.hidden)
             }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.hidden)
-        }
-        // Present AddHabit modal as full-height sheet
-        .sheet(isPresented: $isPresentingAddHabit) {
-            AddHabit { newHabit in
-                // Treat habit as an Event and add it to the shared store
-                eventStore.add(newHabit)
+            // Present AddHabit modal as full-height sheet
+            .sheet(isPresented: $isPresentingAddHabit) {
+                AddHabit { newHabit in
+                    eventStore.add(newHabit)
+                }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.hidden)
             }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.hidden)
         }
     }
 
-    // MARK: - Derived data
+    // MARK: - Helpers (kept from original)
 
-    private var anchorEventsForToday: [Event] {
-        eventStore.eventsForToday.filter { !$0.isHabit }
-    }
-
-    private func habitsAttached(to anchorID: UUID) -> [Event] {
-        eventStore.eventsForToday.filter {
-            $0.isHabit && $0.anchorEventID == anchorID
-        }
-    }
-
-    // MARK: - Helpers
-
-    // Creates the glass background used by all buttons
     private func glassBackground(cornerRadius: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(.ultraThinMaterial)
@@ -196,7 +201,6 @@ struct ContentView: View {
             )
     }
 
-    // A reusable glass button with a system image
     private func glassButton(systemName: String, cornerRadius: CGFloat, size: CGFloat, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
@@ -210,206 +214,269 @@ struct ContentView: View {
         .contentShape(Rectangle())
     }
 
-    // Computes offset for a button placed at angle (degrees) and distance from the anchor (bottom-right)
     private func satelliteOffset(angleDegrees: CGFloat, distance: CGFloat) -> CGSize {
         let radians = angleDegrees * .pi / 180
-        // Negative x to move left from bottom-right anchor, negative y to move up
         let dx = -cos(radians) * distance
         let dy = -sin(radians) * distance
         return CGSize(width: dx, height: dy)
     }
-}
 
-// MARK: - Event Row with Habit Bubbles
-
-private struct EventRowWithHabits: View {
-    let anchor: Event
-    let habits: [Event]
-
-    private let cornerRadius: CGFloat = 18
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Add top/bottom padding if there are habits to clearly separate
-            EventCard(event: anchor)
-                .padding(.top, hasBefore ? 10 : 0)
-                .padding(.bottom, hasAfter ? 10 : 0)
-
-            // Before bubbles above the card with natural spacing
-            if hasBefore {
-                FlowBubbles(habits: habits.filter { $0.attachPosition == .before }, style: .before)
-                    .padding(.bottom, 4)
+    // Filter by current weekday membership, not by calendar date
+    private func eventsForCurrentWeekday(_ all: [Event]) -> [Event] {
+        let weekday = currentWeekday()
+        return all
+            .filter { $0.weekdays.contains(weekday) }
+            .sorted { lhs, rhs in
+                if lhs.startTime != rhs.startTime {
+                    return lhs.startTime < rhs.startTime
+                }
+                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
             }
+    }
 
-            // After bubbles below the card with natural spacing
-            if hasAfter {
-                FlowBubbles(habits: habits.filter { $0.attachPosition == .after }, style: .after)
-                    .padding(.top, 4)
+    private func currentWeekday() -> Weekday {
+        let weekdayNumber = Calendar.current.component(.weekday, from: Date())
+        return Weekday(rawValue: weekdayNumber) ?? .sunday
+    }
+}
+
+// MARK: - Timeline Day View
+
+private struct TimelineDayView: View {
+    let events: [Event]
+    let minuteHeight: CGFloat
+    let hourLabelWidth: CGFloat
+    let eventMinDurationMinutes: Int
+
+    @State private var nowID: Int? = nil // hour index to scroll to
+
+    // Localized time formatter for UI labels (respects system 12/24 setting)
+    private static let uiTimeFormatter: DateFormatter = {
+        let df = DateFormatter()
+        df.locale = .current
+        df.timeStyle = .short
+        df.dateStyle = .none
+        return df
+    }()
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: true) {
+                ZStack(alignment: .topLeading) {
+                    // Hour grid (lowest layer)
+                    HourGrid(minuteHeight: minuteHeight, hourLabelWidth: hourLabelWidth)
+                        .id("grid")
+                        .zIndex(0)
+
+                    // Event track overlay (above grid)
+                    EventTrack(
+                        events: events,
+                        minuteHeight: minuteHeight,
+                        hourLabelWidth: hourLabelWidth,
+                        eventMinDurationMinutes: eventMinDurationMinutes
+                    )
+                    .zIndex(1)
+
+                    // Now line (top-most)
+                    NowLine(minuteHeight: minuteHeight, hourLabelWidth: hourLabelWidth)
+                        .zIndex(2)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 140) // room for FAB
             }
-        }
-    }
-
-    private var hasBefore: Bool {
-        habits.contains { $0.attachPosition == .before }
-    }
-
-    private var hasAfter: Bool {
-        habits.contains { $0.attachPosition == .after }
-    }
-}
-
-// A simple flow layout using Wrap in an HStack/VStack combo to avoid overlap/clutter
-private struct FlowBubbles: View {
-    let habits: [Event]
-    let style: HabitBubble.Style
-
-    var body: some View {
-        // Use a simple flexible layout that wraps if needed to avoid stacking clutter
-        FlexibleWrap(data: habits, spacing: 6, lineSpacing: 6) { habit in
-            HabitBubble(habit: habit, style: style)
-        }
-    }
-}
-
-// MARK: - Habit Bubble
-
-private struct HabitBubble: View {
-    enum Style {
-        case before, after
-    }
-
-    let habit: Event
-    let style: Style
-
-    var body: some View {
-        HStack(spacing: 8) {
-            // Removed checkmark icon per requirement
-            Text(habit.title)
-                .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                .lineLimit(1)
-                .foregroundStyle(.primary)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            Capsule(style: .continuous)
-                .fill(.ultraThinMaterial)
-        )
-        .overlay(
-            Capsule(style: .continuous)
-                .strokeBorder(borderColor.opacity(0.28), lineWidth: 1)
-        )
-        .shadow(color: shadowColor, radius: 8, x: 0, y: style == .before ? -2 : 4)
-    }
-
-    private var borderColor: Color {
-        switch style {
-        case .before: return .white
-        case .after: return .black
-        }
-    }
-
-    private var shadowColor: Color {
-        switch style {
-        case .before: return .black.opacity(0.08)
-        case .after: return .black.opacity(0.12)
-        }
-    }
-}
-
-// MARK: - Event Card (glass style)
-
-private struct EventCard: View {
-    let event: Event
-    private let cornerRadius: CGFloat = 18
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            // Time(s) on the left
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(timeRangeText)
-                    .font(.system(.callout, design: .rounded).weight(.semibold))
-                    .foregroundStyle(.primary)
-            }
-            .frame(width: 84, alignment: .trailing)
-
-            // Title in the middle (now can use more space)
-            Text(event.title)
-                .font(.system(.body, design: .rounded))
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .lineLimit(2)
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(.ultraThinMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 8)
-    }
-
-    private var timeRangeText: String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .none
-        formatter.timeStyle = .short
-        if let end = event.endTime {
-            return "\(formatter.string(from: event.startTime))\n\(formatter.string(from: end))"
-        } else {
-            return formatter.string(from: event.startTime)
-        }
-    }
-}
-
-// A lightweight flexible wrap layout to keep bubbles from overlapping or stacking unreadably.
-private struct FlexibleWrap<Data: RandomAccessCollection, Content: View>: View where Data.Element: Identifiable {
-    let data: Data
-    let spacing: CGFloat
-    let lineSpacing: CGFloat
-    let content: (Data.Element) -> Content
-
-    init(data: Data, spacing: CGFloat = 8, lineSpacing: CGFloat = 8, @ViewBuilder content: @escaping (Data.Element) -> Content) {
-        self.data = data
-        self.spacing = spacing
-        self.lineSpacing = lineSpacing
-        self.content = content
-    }
-
-    var body: some View {
-        var width: CGFloat = 0
-        var height: CGFloat = 0
-
-        return GeometryReader { geometry in
-            ZStack(alignment: .topLeading) {
-                ForEach(data) { item in
-                    content(item)
-                        .padding(.trailing, spacing)
-                        .padding(.bottom, lineSpacing)
-                        .alignmentGuide(.leading) { d in
-                            if (abs(width - d.width) > geometry.size.width) {
-                                width = 0
-                                height -= d.height + lineSpacing
-                            }
-                            let result = width
-                            width -= d.width + spacing
-                            return result
+            .onAppear {
+                // Compute the nearest hour to "now" and scroll to it once
+                if nowID == nil {
+                    let comps = Calendar.current.dateComponents([.hour, .minute], from: Date())
+                    if let hour = comps.hour {
+                        nowID = hour
+                        withAnimation(.easeInOut(duration: 0.6)) {
+                            proxy.scrollTo(hourAnchorID(hour), anchor: .center)
                         }
-                        .alignmentGuide(.top) { _ in
-                            let result = height
-                            return result
-                        }
+                    }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(minHeight: 0)
+    }
+
+    private func hourAnchorID(_ hour: Int) -> String {
+        "hour-\(hour)"
+    }
+
+    // Hour grid with labels and separators
+    private struct HourGrid: View {
+        let minuteHeight: CGFloat
+        let hourLabelWidth: CGFloat
+
+        // Formatter to build hour labels per system 12h/24h preference
+        private static let hourLabelFormatter: DateFormatter = {
+            let df = DateFormatter()
+            df.locale = .current
+            df.timeStyle = .short
+            df.dateStyle = .none
+            return df
+        }()
+
+        var body: some View {
+            VStack(spacing: 0) {
+                ForEach(0...24, id: \.self) { hour in
+                    HStack(alignment: .top, spacing: 8) {
+                        // Left rail labels
+                        Text(label(for: hour))
+                            .font(.system(.caption2, design: .rounded).weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: hourLabelWidth, alignment: .trailing)
+                            .padding(.trailing, 6)
+                            .id("hour-\(hour)")
+
+                        // Right rail separator line spanning one hour height (except at 24)
+                        Rectangle()
+                            .fill(Color.white.opacity(0.14))
+                            .frame(height: hour == 24 ? 1 : minuteHeight * 60)
+                            .overlay(alignment: .top) {
+                                Rectangle()
+                                    .fill(Color.white.opacity(0.22))
+                                    .frame(height: 0.5)
+                            }
+                            .overlay(alignment: .bottom) {
+                                if hour < 24 {
+                                    Rectangle()
+                                        .fill(Color.white.opacity(0.08))
+                                        .frame(height: 0.5)
+                                }
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                }
+            }
+        }
+
+        private func label(for hour: Int) -> String {
+            // Build a Date at today's midnight and add `hour` hours, then format for UI.
+            let cal = Calendar.current
+            let startOfDay = cal.startOfDay(for: Date())
+            if let date = cal.date(byAdding: .hour, value: hour, to: startOfDay) {
+                return HourGrid.hourLabelFormatter.string(from: date)
+            } else {
+                return "\(hour):00"
+            }
+        }
+    }
+
+    // Event overlay track
+    private struct EventTrack: View {
+        let events: [Event]
+        let minuteHeight: CGFloat
+        let hourLabelWidth: CGFloat
+        let eventMinDurationMinutes: Int
+
+        var body: some View {
+            ZStack(alignment: .topLeading) {
+                ForEach(positionedEvents) { pe in
+                    EventBlock(event: pe.event, y: pe.y, height: pe.height, hourLabelWidth: hourLabelWidth)
+                        .zIndex(Double(pe.column)) // prepare for overlap columns later
+                }
+            }
+        }
+
+        // Prepare for overlap handling: column reserved, currently 0 for all
+        private var positionedEvents: [PositionedEvent] {
+            events.map { e in
+                let start = minutesSinceMidnight(e.startTime) // 24h minutes since midnight
+                let end = e.endTime.map { minutesSinceMidnight($0) } // 24h minutes since midnight
+                let duration = max((end ?? start + eventMinDurationMinutes) - start, eventMinDurationMinutes)
+                let y = CGFloat(start) * minuteHeight
+                let height = CGFloat(duration) * minuteHeight
+                return PositionedEvent(event: e, y: y, height: height, column: 0)
+            }
+        }
+
+        private struct PositionedEvent: Identifiable {
+            var id: UUID { event.id }
+            let event: Event
+            let y: CGFloat
+            let height: CGFloat
+            let column: Int
+        }
+
+        // Internal positioning math: minutes since midnight in 24-hour space
+        private func minutesSinceMidnight(_ date: Date) -> Int {
+            let cal = Calendar.current
+            let comps = cal.dateComponents([.hour, .minute], from: date)
+            let h = comps.hour ?? 0
+            let m = comps.minute ?? 0
+            return h * 60 + m
+        }
+    }
+
+    // Event block card
+    private struct EventBlock: View {
+        let event: Event
+        let y: CGFloat
+        let height: CGFloat
+        let hourLabelWidth: CGFloat
+
+        var body: some View {
+            HStack(spacing: 8) {
+                // Spacer to align to the track (skip label rail)
+                Color.clear
+                    .frame(width: hourLabelWidth)
+
+                // The block occupying the track width
+                VStack(alignment: .leading, spacing: 0) {
+                    // Title only (display formatter available if times are later shown)
+                    Text(event.title)
+                        .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .contentShape(Rectangle())
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    // Darker rectangle than the hour grid
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color.black.opacity(0.18))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.22), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 6)
+                .frame(height: max(height, 44), alignment: .topLeading)
+            }
+            .offset(y: y)
+        }
+    }
+
+    // Now indicator line
+    private struct NowLine: View {
+        let minuteHeight: CGFloat
+        let hourLabelWidth: CGFloat
+
+        var body: some View {
+            let cal = Calendar.current
+            let comps = cal.dateComponents([.hour, .minute], from: Date())
+            let minutes = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
+            return HStack(spacing: 8) {
+                Color.clear
+                    .frame(width: hourLabelWidth)
+
+                Rectangle()
+                    .fill(Color.red.opacity(0.9))
+                    .frame(height: 2)
+                    .shadow(color: .red.opacity(0.4), radius: 2, x: 0, y: 0)
+            }
+            .offset(y: CGFloat(minutes) * minuteHeight)
+            .accessibilityLabel("Current time")
+        }
     }
 }
 
-// MARK: - Avatar Circle (placeholder)
+// MARK: - Avatar Circle (kept from original)
 
 private struct AvatarCircle: View {
     var body: some View {

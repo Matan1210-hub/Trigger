@@ -308,7 +308,7 @@ private struct EndTimeField: View {
 
 // MARK: - Weekday Model
 
-enum Weekday: Int, CaseIterable, Hashable, Identifiable {
+enum Weekday: Int, CaseIterable, Hashable, Identifiable, Codable {
     case sunday = 1, monday, tuesday, wednesday, thursday, friday, saturday
 
     var id: Int { rawValue }
