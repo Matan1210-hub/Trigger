@@ -405,7 +405,7 @@ private struct TimelineDayView: View {
             let comps = cal.dateComponents([.hour, .minute], from: date)
             let h = comps.hour ?? 0
             let m = comps.minute ?? 0
-            return h * 60 + m
+            return (h * 60 + m) - 710
         }
     }
 
