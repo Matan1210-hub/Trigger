@@ -33,6 +33,10 @@ struct ContentView: View {
     // Scroll to now
     @State private var initialScrolled = false
 
+    // Deletion confirmation state
+    @State private var eventPendingDeletion: Event? = nil
+    @State private var showDeleteDialog: Bool = false
+
     // Fixed 24-hour parser for any future string-to-Date conversions (not used by DatePicker flow)
     private static let fixed24hParser: DateFormatter = {
         let df = DateFormatter()
@@ -91,7 +95,15 @@ struct ContentView: View {
                         events: eventsForCurrentWeekday(eventStore.events),
                         minuteHeight: minuteHeight,
                         hourLabelWidth: hourLabelWidth,
-                        eventMinDurationMinutes: eventMinDurationMinutes
+                        eventMinDurationMinutes: eventMinDurationMinutes,
+                        onLongPressEvent: { event in
+                            eventPendingDeletion = event
+                            showDeleteDialog = true
+                        },
+                        onTapDelete: { event in
+                            eventPendingDeletion = event
+                            showDeleteDialog = true
+                        }
                     )
                     .padding(.top, 12)
 
@@ -187,6 +199,24 @@ struct ContentView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
             }
+            // Confirmation dialog for deleting an event
+            .confirmationDialog(
+                "Delete this event?",
+                isPresented: $showDeleteDialog,
+                presenting: eventPendingDeletion,
+                actions: { event in
+                    Button("Delete", role: .destructive) {
+                        eventStore.delete(id: event.id)
+                        eventPendingDeletion = nil
+                    }
+                    Button("Cancel", role: .cancel) {
+                        eventPendingDeletion = nil
+                    }
+                },
+                message: { event in
+                    Text("“\(event.title)” will be removed from your schedule and from this device.")
+                }
+            )
         }
     }
 
@@ -247,6 +277,8 @@ private struct TimelineDayView: View {
     let minuteHeight: CGFloat
     let hourLabelWidth: CGFloat
     let eventMinDurationMinutes: Int
+    var onLongPressEvent: (Event) -> Void
+    var onTapDelete: (Event) -> Void
 
     @State private var nowID: Int? = nil // hour index to scroll to
 
@@ -273,7 +305,9 @@ private struct TimelineDayView: View {
                         events: events,
                         minuteHeight: minuteHeight,
                         hourLabelWidth: hourLabelWidth,
-                        eventMinDurationMinutes: eventMinDurationMinutes
+                        eventMinDurationMinutes: eventMinDurationMinutes,
+                        onLongPressEvent: onLongPressEvent,
+                        onTapDelete: onTapDelete
                     )
                     .zIndex(1)
 
@@ -369,12 +403,21 @@ private struct TimelineDayView: View {
         let minuteHeight: CGFloat
         let hourLabelWidth: CGFloat
         let eventMinDurationMinutes: Int
+        var onLongPressEvent: (Event) -> Void
+        var onTapDelete: (Event) -> Void
 
         var body: some View {
             ZStack(alignment: .topLeading) {
                 ForEach(positionedEvents) { pe in
-                    EventBlock(event: pe.event, y: pe.y, height: pe.height, hourLabelWidth: hourLabelWidth)
-                        .zIndex(Double(pe.column)) // prepare for overlap columns later
+                    EventBlock(
+                        event: pe.event,
+                        y: pe.y,
+                        height: pe.height,
+                        hourLabelWidth: hourLabelWidth,
+                        onLongPress: { onLongPressEvent(pe.event) },
+                        onTapDelete: { onTapDelete(pe.event) }
+                    )
+                    .zIndex(Double(pe.column)) // prepare for overlap columns later
                 }
             }
         }
@@ -415,8 +458,24 @@ private struct TimelineDayView: View {
         let y: CGFloat
         let height: CGFloat
         let hourLabelWidth: CGFloat
+        var onLongPress: () -> Void
+        var onTapDelete: () -> Void
+
+        @GestureState private var isPressed: Bool = false
 
         var body: some View {
+            // Gesture to reflect immediate press state (for scaling)
+            let pressGesture = LongPressGesture(minimumDuration: 0)
+                .updating($isPressed) { current, state, _ in
+                    state = current
+                }
+
+            // Actual long-press action gesture
+            let actionGesture = LongPressGesture(minimumDuration: 0.5)
+                .onEnded { _ in
+                    onLongPress()
+                }
+
             HStack(spacing: 8) {
                 // Spacer to align to the track (skip label rail)
                 Color.clear
@@ -424,15 +483,33 @@ private struct TimelineDayView: View {
 
                 // The block occupying the track width
                 VStack(alignment: .leading, spacing: 0) {
-                    // Title only (display formatter available if times are later shown)
-                    Text(event.title)
-                        .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
-                        .contentShape(Rectangle())
+                    HStack(alignment: .center, spacing: 8) {
+                        Text(event.title)
+                            .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        // Trash button
+                        Button {
+                            onTapDelete()
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.secondary)
+                                .padding(8)
+                                .background(
+                                    Circle()
+                                        .fill(.ultraThinMaterial)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Delete event")
+                        .accessibilityHint("Shows a confirmation to delete this event")
+                    }
+                    .padding(12)
+
                     Spacer(minLength: 0)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -447,6 +524,9 @@ private struct TimelineDayView: View {
                 )
                 .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 6)
                 .frame(height: max(height, 44), alignment: .topLeading)
+                .scaleEffect(isPressed ? 0.96 : 1.0)
+                .animation(.spring(response: 0.25, dampingFraction: 0.85), value: isPressed)
+                .gesture(pressGesture.simultaneously(with: actionGesture))
             }
             .offset(y: y)
         }
