@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var isExpanded = false
     @State private var isPresentingAddEvent = false
     @State private var isPresentingAddHabit = false
+    @State private var navigateToEditDebug = false
 
     // Read the shared store from the environment (provided by TriggerApp)
     @EnvironmentObject private var eventStore: EventStore
@@ -157,6 +158,23 @@ struct ContentView: View {
                         .opacity(isExpanded ? 1 : 0)
                         .rotationEffect(.degrees(isExpanded ? 0 : -12))
                         .animation(expandAnimation, value: isExpanded)
+
+                        // New pencil button
+                        glassButton(
+                            systemName: "pencil",
+                            cornerRadius: buttonCornerRadius,
+                            size: buttonSize
+                        ) {
+                            withAnimation(expandAnimation) {
+                                isExpanded = false
+                            }
+                            navigateToEditDebug = true
+                        }
+                        .offset(satelliteOffset(angleDegrees: 360, distance: satelliteDistance))
+                        .scaleEffect(isExpanded ? 1 : 0.6)
+                        .opacity(isExpanded ? 1 : 0)
+                        .rotationEffect(.degrees(isExpanded ? 0 : -12))
+                        .animation(expandAnimation, value: isExpanded)
                     }
                     .allowsHitTesting(isExpanded)
 
@@ -216,6 +234,17 @@ struct ContentView: View {
                 message: { event in
                     Text("“\(event.title)” will be removed from your schedule and from this device.")
                 }
+            )
+            // Hidden navigation trigger to EditDebugView
+            .background(
+                NavigationLink(
+                    destination: EditView()
+                        .toolbar(.hidden, for: .navigationBar),
+                    isActive: $navigateToEditDebug
+                ) {
+                    EmptyView()
+                }
+                .hidden()
             )
         }
     }
@@ -408,6 +437,7 @@ private struct TimelineDayView: View {
 
         var body: some View {
             ZStack(alignment: .topLeading) {
+                // First render all non-habit events as main blocks
                 ForEach(positionedEvents) { pe in
                     EventBlock(
                         event: pe.event,
@@ -417,21 +447,59 @@ private struct TimelineDayView: View {
                         onLongPress: { onLongPressEvent(pe.event) },
                         onTapDelete: { onTapDelete(pe.event) }
                     )
-                    .zIndex(Double(pe.column)) // prepare for overlap columns later
+                    .zIndex(Double(pe.column))
+
+                    // Then render any attached habits for this anchor event
+                    ForEach(habitsAttached(to: pe.event)) { hb in
+                        let habitFrame = habitFrame(for: hb, anchorY: pe.y, anchorHeight: pe.height)
+                        HabitBlock(
+                            habit: hb,
+                            y: habitFrame.y,
+                            height: habitFrame.height,
+                            hourLabelWidth: hourLabelWidth,
+                            rightOutset: habitRightOutset,
+                            alignToTop: hb.attachPosition == .before
+                        )
+                        .zIndex(Double(pe.column) + 0.5)
+                    }
                 }
             }
         }
 
-        // Prepare for overlap handling: column reserved, currently 0 for all
+        // MARK: - Layout constants for habits
+
+        // Habit visual height; smaller than events
+        private var habitVisualHeight: CGFloat { 28 }
+        // Slight outward offset to the right
+        private var habitRightOutset: CGFloat { 6 }
+        // Inset from event block right edge so it appears contained
+        private var habitRightInsetInsideEvent: CGFloat { 10 }
+        // Inset from event block left edge so it sits on the right side
+        private var habitLeftInsetInsideEvent: CGFloat { 56 }
+
+        // MARK: - Data slicing
+
         private var positionedEvents: [PositionedEvent] {
-            events.map { e in
-                let start = minutesSinceMidnight(e.startTime) // 24h minutes since midnight
-                let end = e.endTime.map { minutesSinceMidnight($0) } // 24h minutes since midnight
+            nonHabitEvents.map { e in
+                let start = minutesSinceMidnight(e.startTime)
+                let end = e.endTime.map { minutesSinceMidnight($0) }
                 let duration = max((end ?? start + eventMinDurationMinutes) - start, eventMinDurationMinutes)
                 let y = CGFloat(start) * minuteHeight
                 let height = CGFloat(duration) * minuteHeight
                 return PositionedEvent(event: e, y: y, height: height, column: 0)
             }
+        }
+
+        private var nonHabitEvents: [Event] {
+            events.filter { !$0.isHabit }
+        }
+
+        private func habitsAttached(to anchor: Event) -> [Event] {
+            events.filter { $0.isHabit && $0.anchorEventID == anchor.id }
+                .sorted { a, b in
+                    // top-first for consistent stacking
+                    (a.attachPosition == .before ? 0 : 1) < (b.attachPosition == .before ? 0 : 1)
+                }
         }
 
         private struct PositionedEvent: Identifiable {
@@ -449,6 +517,14 @@ private struct TimelineDayView: View {
             let h = comps.hour ?? 0
             let m = comps.minute ?? 0
             return (h * 60 + m) - 710
+        }
+
+        // Compute the frame for a habit relative to its anchor event’s visual block
+        private func habitFrame(for habit: Event, anchorY: CGFloat, anchorHeight: CGFloat) -> (y: CGFloat, height: CGFloat) {
+            // Align to top or bottom edge depending on attachPosition
+            let alignTop = (habit.attachPosition == .before)
+            let y = alignTop ? anchorY - 1 : (anchorY + anchorHeight - habitVisualHeight + 1)
+            return (y: y, height: habitVisualHeight)
         }
     }
 
@@ -532,6 +608,55 @@ private struct TimelineDayView: View {
         }
     }
 
+    // Habit block card (smaller, transparent green, right-aligned and slightly sticking out)
+    private struct HabitBlock: View {
+        let habit: Event
+        let y: CGFloat
+        let height: CGFloat
+        let hourLabelWidth: CGFloat
+        let rightOutset: CGFloat
+        let alignToTop: Bool
+
+        var body: some View {
+            HStack(spacing: 8) {
+                // Spacer to align to the track (skip label rail)
+                Color.clear
+                    .frame(width: hourLabelWidth)
+
+                GeometryReader { geo in
+                    // Full track width available to events
+                    let trackWidth = geo.size.width
+                    // Visual layout: habit sits on the right inside the event, with slight outward offset
+                    let leftInset: CGFloat = 56
+                    let rightInset: CGFloat = 10
+                    let habitWidth = max(120, trackWidth - leftInset - rightInset)
+                    let x = trackWidth - rightInset - habitWidth + rightOutset
+
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.green.opacity(0.15))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .strokeBorder(Color.green.opacity(0.35), lineWidth: 1)
+                            )
+                            .shadow(color: Color.green.opacity(0.18), radius: 6, x: 0, y: 3)
+
+                        Text(habit.title)
+                            .font(.system(.caption, design: .rounded).weight(.semibold))
+                            .foregroundStyle(Color.green.opacity(0.9))
+                            .lineLimit(1)
+                            .padding(.horizontal, 10)
+                    }
+                    .frame(width: habitWidth, height: height, alignment: .leading)
+                    .position(x: x + habitWidth / 2, y: height / 2)
+                }
+                .frame(height: height)
+            }
+            .offset(y: y)
+            .accessibilityLabel("Habit: \(habit.title)")
+        }
+    }
+
     // Now indicator line
     private struct NowLine: View {
         let minuteHeight: CGFloat
@@ -583,3 +708,4 @@ private struct AvatarCircle: View {
     ContentView()
         .environmentObject(EventStore())
 }
+

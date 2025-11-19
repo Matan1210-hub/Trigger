@@ -92,7 +92,7 @@ struct AddEvent: View {
     }
 }
 
-private struct EventFormCard: View {
+struct EventFormCard: View {
     @Binding var title: String
     @Binding var selectedDays: Set<Weekday>
     @Binding var time: Date
@@ -122,7 +122,7 @@ private struct EventFormCard: View {
     }
 }
 
-private struct TitleField: View {
+struct TitleField: View {
     @Binding var title: String
 
     var body: some View {
@@ -137,7 +137,7 @@ private struct TitleField: View {
     }
 }
 
-private struct WeekdaysSection: View {
+struct WeekdaysSection: View {
     @Binding var selectedDays: Set<Weekday>
 
     var body: some View {
@@ -159,7 +159,7 @@ private struct WeekdaysSection: View {
     }
 }
 
-private struct TimeSection: View {
+struct TimeSection: View {
     @Binding var time: Date
     @Binding var isEndTimeEnabled: Bool
     @Binding var endTime: Date
@@ -184,7 +184,7 @@ private struct TimeSection: View {
     }
 }
 
-private struct StartTimeField: View {
+struct StartTimeField: View {
     @Binding var time: Date
     @Binding var isEndTimeEnabled: Bool
     @Binding var endTime: Date
@@ -232,7 +232,7 @@ private struct StartTimeField: View {
     }
 }
 
-private struct EndTimeField: View {
+struct EndTimeField: View {
     @Binding var isEndTimeEnabled: Bool
     @Binding var time: Date
     @Binding var endTime: Date
@@ -347,7 +347,7 @@ enum Weekday: Int, CaseIterable, Hashable, Identifiable, Codable {
 
 // MARK: - Weekday Grid
 
-private struct WeekdayGrid: View {
+struct WeekdayGrid: View {
     @Binding var selectedDays: Set<Weekday>
     let cornerRadius: CGFloat
 
@@ -383,7 +383,7 @@ private struct WeekdayGrid: View {
 
 // MARK: - Weekday Chip
 
-private struct WeekdayChip: View {
+struct WeekdayChip: View {
     let day: Weekday
     let isSelected: Bool
     let cornerRadius: CGFloat
@@ -414,4 +414,3 @@ private struct WeekdayChip: View {
 #Preview {
     AddEvent()
 }
-
