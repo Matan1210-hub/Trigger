@@ -30,8 +30,8 @@
             filePath = "Trigger/ContentView.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "634"
-            endingLineNumber = "634"
+            startingLineNumber = "645"
+            endingLineNumber = "645"
             landmarkName = "EventBlock"
             landmarkType = "14">
          </BreakpointContent>

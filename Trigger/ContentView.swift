@@ -573,6 +573,9 @@ private struct TimelineDayView: View {
                     onLongPress()
                 }
 
+            // Right margin to ensure the trash icon stays comfortably visible
+            let rightMargin: CGFloat = 16
+
             // Build a single-layer container with intrinsic width equal to full track width.
             ZStack(alignment: .topLeading) {
                 // Left rail spacer area (non-interactive)
@@ -580,50 +583,58 @@ private struct TimelineDayView: View {
                     .frame(width: hourLabelWidth)
                     .frame(maxHeight: .infinity, alignment: .topLeading)
 
-                // Event card
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(alignment: .center, spacing: 8) {
-                        Text(event.title)
-                            .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .multilineTextAlignment(.leading)
-                            .lineLimit(2)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                // Event card with constrained width
+                GeometryReader { geo in
+                    // geo.size.width here is the width of the full track area for this row
+                    let fullWidth = geo.size.width
+                    // Subtract the time rail and a right margin so the card is slightly narrower
+                    // Keep the existing 8pt left gap from the rail.
+                    let cardWidth = max(0, fullWidth - (hourLabelWidth + 8 + rightMargin))
 
-                        // Trash button
-                        Button {
-                            onTapDelete()
-                        } label: {
-                            Image(systemName: "trash")
-                                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                .foregroundStyle(.secondary)
-                                .padding(8)
-                                .background(
-                                    Circle()
-                                        .fill(.ultraThinMaterial)
-                                )
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack(alignment: .center, spacing: 8) {
+                            Text(event.title)
+                                .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .multilineTextAlignment(.leading)
+                                .lineLimit(2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                            // Trash button
+                            Button {
+                                onTapDelete()
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(.secondary)
+                                    .padding(8)
+                                    .background(
+                                        Circle()
+                                            .fill(.ultraThinMaterial)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Delete event")
+                            .accessibilityHint("Shows a confirmation to delete this event")
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Delete event")
-                        .accessibilityHint("Shows a confirmation to delete this event")
-                    }
-                    .padding(12)
+                        .padding(12)
 
-                    Spacer(minLength: 0)
+                        Spacer(minLength: 0)
+                    }
+                    .frame(width: cardWidth, alignment: .leading)
+                    .background(
+                        // Darker rectangle than the hour grid
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color.black.opacity(0.18))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.22), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 6)
+                    .frame(height: max(height, 44), alignment: .topLeading)
+                    .offset(x: hourLabelWidth + 8) // push card to the right of the time rail
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    // Darker rectangle than the hour grid
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color.black.opacity(0.18))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.22), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 6)
-                .frame(height: max(height, 44), alignment: .topLeading)
-                .offset(x: hourLabelWidth + 8) // push card to the right of the time rail
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .frame(height: max(height, 44), alignment: .topLeading)
@@ -728,4 +739,3 @@ private struct AvatarCircle: View {
     ContentView()
         .environmentObject(EventStore())
 }
-
