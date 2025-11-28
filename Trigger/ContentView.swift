@@ -202,8 +202,6 @@ struct ContentView: View {
             // Present AddEvent modal as full-height sheet
             .sheet(isPresented: $isPresentingAddEvent) {
                 AddEvent { newEvent in
-                    // If you ever receive times as strings, convert with fixed24hParser first:
-                    // let parsed = ContentView.fixed24hParser.date(from: "10:00")
                     eventStore.add(newEvent)
                 }
                 .presentationDetents([.large])
@@ -436,34 +434,52 @@ private struct TimelineDayView: View {
         var onTapDelete: (Event) -> Void
 
         var body: some View {
-            ZStack(alignment: .topLeading) {
-                // First render all non-habit events as main blocks
-                ForEach(positionedEvents) { pe in
-                    EventBlock(
-                        event: pe.event,
-                        y: pe.y,
-                        height: pe.height,
-                        hourLabelWidth: hourLabelWidth,
-                        onLongPress: { onLongPressEvent(pe.event) },
-                        onTapDelete: { onTapDelete(pe.event) }
-                    )
-                    .zIndex(Double(pe.column))
+            // Fixed 24-hour canvas height so children do not expand the container
+            let canvasHeight = minuteHeight * 60 * 24
 
-                    // Then render any attached habits for this anchor event
-                    ForEach(habitsAttached(to: pe.event)) { hb in
-                        let habitFrame = habitFrame(for: hb, anchorY: pe.y, anchorHeight: pe.height)
-                        HabitBlock(
-                            habit: hb,
-                            y: habitFrame.y,
-                            height: habitFrame.height,
+            GeometryReader { geo in
+                // Full width available for the track (includes left rail)
+                let trackWidth = geo.size.width
+
+                ZStack(alignment: .topLeading) {
+                    // Absolutely position each non-habit event at its y
+                    ForEach(positionedEvents) { pe in
+                        EventBlock(
+                            event: pe.event,
+                            y: pe.y,
+                            height: pe.height,
                             hourLabelWidth: hourLabelWidth,
-                            rightOutset: habitRightOutset,
-                            alignToTop: hb.attachPosition == .before
+                            onLongPress: { onLongPressEvent(pe.event) },
+                            onTapDelete: { onTapDelete(pe.event) }
                         )
-                        .zIndex(Double(pe.column) + 0.5)
+                        // Ensure independent absolute placement
+                        .position(x: trackWidth / 2, y: pe.y + pe.height / 2)
+                        .frame(width: trackWidth, height: pe.height, alignment: .topLeading)
+                        .allowsHitTesting(true)
+                        .zIndex(Double(pe.column))
+                    }
+
+                    // Habits are also absolutely positioned relative to their anchor’s visual frame
+                    ForEach(positionedEvents) { pe in
+                        ForEach(habitsAttached(to: pe.event)) { hb in
+                            let habitFrame = habitFrame(for: hb, anchorY: pe.y, anchorHeight: pe.height)
+                            HabitBlock(
+                                habit: hb,
+                                y: habitFrame.y,
+                                height: habitFrame.height,
+                                hourLabelWidth: hourLabelWidth,
+                                rightOutset: habitRightOutset,
+                                alignToTop: hb.attachPosition == .before
+                            )
+                            .position(x: trackWidth / 2, y: habitFrame.y + habitFrame.height / 2)
+                            .frame(width: trackWidth, height: habitFrame.height, alignment: .topLeading)
+                            .zIndex(Double(pe.column) + 0.5)
+                        }
                     }
                 }
+                .frame(width: trackWidth, height: canvasHeight, alignment: .topLeading)
             }
+            .frame(height: minuteHeight * 60 * 24) // lock outer height too
         }
 
         // MARK: - Layout constants for habits
@@ -482,11 +498,16 @@ private struct TimelineDayView: View {
         private var positionedEvents: [PositionedEvent] {
             nonHabitEvents.map { e in
                 let start = minutesSinceMidnight(e.startTime)
-                let end = e.endTime.map { minutesSinceMidnight($0) }
-                let duration = max((end ?? start + eventMinDurationMinutes) - start, eventMinDurationMinutes)
+                let endMinutes = e.endTime.map { minutesSinceMidnight($0) }
+                // Ensure y is always based solely on start, and duration uses a minimum when end is missing
+                let minEndIfMissing = start + eventMinDurationMinutes
+                let effectiveEnd = endMinutes ?? minEndIfMissing
+                let duration = max(effectiveEnd - start, eventMinDurationMinutes)
+
                 let y = CGFloat(start) * minuteHeight
                 let height = CGFloat(duration) * minuteHeight
                 return PositionedEvent(event: e, y: y, height: height, column: 0)
+           
             }
         }
 
@@ -516,7 +537,7 @@ private struct TimelineDayView: View {
             let comps = cal.dateComponents([.hour, .minute], from: date)
             let h = comps.hour ?? 0
             let m = comps.minute ?? 0
-            return (h * 60 + m) - 710
+            return (h * 60 + m)
         }
 
         // Compute the frame for a habit relative to its anchor event’s visual block
@@ -552,12 +573,14 @@ private struct TimelineDayView: View {
                     onLongPress()
                 }
 
-            HStack(spacing: 8) {
-                // Spacer to align to the track (skip label rail)
+            // Build a single-layer container with intrinsic width equal to full track width.
+            ZStack(alignment: .topLeading) {
+                // Left rail spacer area (non-interactive)
                 Color.clear
                     .frame(width: hourLabelWidth)
+                    .frame(maxHeight: .infinity, alignment: .topLeading)
 
-                // The block occupying the track width
+                // Event card
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(alignment: .center, spacing: 8) {
                         Text(event.title)
@@ -600,11 +623,13 @@ private struct TimelineDayView: View {
                 )
                 .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 6)
                 .frame(height: max(height, 44), alignment: .topLeading)
-                .scaleEffect(isPressed ? 0.96 : 1.0)
-                .animation(.spring(response: 0.25, dampingFraction: 0.85), value: isPressed)
-                .gesture(pressGesture.simultaneously(with: actionGesture))
+                .offset(x: hourLabelWidth + 8) // push card to the right of the time rail
             }
-            .offset(y: y)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(height: max(height, 44), alignment: .topLeading)
+            .scaleEffect(isPressed ? 0.96 : 1.0)
+            .animation(.spring(response: 0.25, dampingFraction: 0.85), value: isPressed)
+            .gesture(pressGesture.simultaneously(with: actionGesture))
         }
     }
 
@@ -618,41 +643,34 @@ private struct TimelineDayView: View {
         let alignToTop: Bool
 
         var body: some View {
-            HStack(spacing: 8) {
-                // Spacer to align to the track (skip label rail)
-                Color.clear
-                    .frame(width: hourLabelWidth)
+            GeometryReader { geo in
+                // Full track width available to events
+                let trackWidth = geo.size.width
+                // Visual layout: habit sits on the right inside the event, with slight outward offset
+                let leftInset: CGFloat = 56
+                let rightInset: CGFloat = 10
+                let habitWidth = max(120, trackWidth - leftInset - rightInset)
+                let x = trackWidth - rightInset - habitWidth + rightOutset
 
-                GeometryReader { geo in
-                    // Full track width available to events
-                    let trackWidth = geo.size.width
-                    // Visual layout: habit sits on the right inside the event, with slight outward offset
-                    let leftInset: CGFloat = 56
-                    let rightInset: CGFloat = 10
-                    let habitWidth = max(120, trackWidth - leftInset - rightInset)
-                    let x = trackWidth - rightInset - habitWidth + rightOutset
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.green.opacity(0.15))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .strokeBorder(Color.green.opacity(0.35), lineWidth: 1)
+                        )
+                        .shadow(color: Color.green.opacity(0.18), radius: 6, x: 0, y: 3)
 
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color.green.opacity(0.15))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .strokeBorder(Color.green.opacity(0.35), lineWidth: 1)
-                            )
-                            .shadow(color: Color.green.opacity(0.18), radius: 6, x: 0, y: 3)
-
-                        Text(habit.title)
-                            .font(.system(.caption, design: .rounded).weight(.semibold))
-                            .foregroundStyle(Color.green.opacity(0.9))
-                            .lineLimit(1)
-                            .padding(.horizontal, 10)
-                    }
-                    .frame(width: habitWidth, height: height, alignment: .leading)
-                    .position(x: x + habitWidth / 2, y: height / 2)
+                    Text(habit.title)
+                        .font(.system(.caption, design: .rounded).weight(.semibold))
+                        .foregroundStyle(Color.green.opacity(0.9))
+                        .lineLimit(1)
+                        .padding(.horizontal, 10)
                 }
-                .frame(height: height)
+                .frame(width: habitWidth, height: height, alignment: .leading)
+                .position(x: x + habitWidth / 2, y: height / 2)
             }
-            .offset(y: y)
+            .frame(height: height)
             .accessibilityLabel("Habit: \(habit.title)")
         }
     }
@@ -666,15 +684,17 @@ private struct TimelineDayView: View {
             let cal = Calendar.current
             let comps = cal.dateComponents([.hour, .minute], from: Date())
             let minutes = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
-            return HStack(spacing: 8) {
+            return ZStack(alignment: .topLeading) {
+                // left rail spacer
                 Color.clear
                     .frame(width: hourLabelWidth)
-
                 Rectangle()
                     .fill(Color.red.opacity(0.9))
                     .frame(height: 2)
                     .shadow(color: .red.opacity(0.4), radius: 2, x: 0, y: 0)
+                    .offset(x: hourLabelWidth + 8)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .offset(y: CGFloat(minutes) * minuteHeight)
             .accessibilityLabel("Current time")
         }

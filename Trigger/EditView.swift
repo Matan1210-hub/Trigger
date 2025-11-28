@@ -15,6 +15,7 @@ struct EditView: View {
     private static let timeFormatter: DateFormatter = {
         let df = DateFormatter()
         df.locale = .current
+        df.timeZone = .current
         df.timeStyle = .short
         df.dateStyle = .none
         return df
