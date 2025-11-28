@@ -544,8 +544,11 @@ private struct TimelineDayView: View {
         private func habitFrame(for habit: Event, anchorY: CGFloat, anchorHeight: CGFloat) -> (y: CGFloat, height: CGFloat) {
             // Align to top or bottom edge depending on attachPosition
             let alignTop = (habit.attachPosition == .before)
-            let y = alignTop ? anchorY - 1 : (anchorY + anchorHeight - habitVisualHeight + 1)
-            return (y: y, height: habitVisualHeight)
+            // Small vertical nudge: before -> up, after -> down
+            let nudge: CGFloat = 8
+            let baseY = alignTop ? anchorY - 1 : (anchorY + anchorHeight - habitVisualHeight + 1)
+            let adjustedY = alignTop ? (baseY - nudge) : (baseY + nudge)
+            return (y: adjustedY, height: habitVisualHeight)
         }
     }
 
@@ -657,15 +660,15 @@ private struct TimelineDayView: View {
             GeometryReader { geo in
                 // Full track width available to events
                 let trackWidth = geo.size.width
-                // Visual layout: habit sits on the right inside the event, with slight outward offset
+                // Desired intrinisic width logic retained; centered horizontally
                 let leftInset: CGFloat = 56
                 let rightInset: CGFloat = 10
-                let habitWidth = max(120, trackWidth - leftInset - rightInset)
-                let x = trackWidth - rightInset - habitWidth + rightOutset
+                let availableWidth = max(120, trackWidth - leftInset - rightInset)
+                let habitWidth = availableWidth * 0.7
 
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.green.opacity(0.15))
+                        .fill(Color("green_L5").opacity(0.15))
                         .overlay(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .strokeBorder(Color.green.opacity(0.35), lineWidth: 1)
@@ -674,12 +677,13 @@ private struct TimelineDayView: View {
 
                     Text(habit.title)
                         .font(.system(.caption, design: .rounded).weight(.semibold))
-                        .foregroundStyle(Color.green.opacity(0.9))
+                        .foregroundStyle(Color("green_L5").opacity(0.9))
                         .lineLimit(1)
                         .padding(.horizontal, 10)
                 }
                 .frame(width: habitWidth, height: height, alignment: .leading)
-                .position(x: x + habitWidth / 2, y: height / 2)
+                // Center horizontally within the track
+                .position(x: trackWidth / 2, y: height / 2)
             }
             .frame(height: height)
             .accessibilityLabel("Habit: \(habit.title)")
@@ -739,3 +743,4 @@ private struct AvatarCircle: View {
     ContentView()
         .environmentObject(EventStore())
 }
+
