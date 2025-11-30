@@ -16,6 +16,7 @@ final class AuthStore: ObservableObject {
 
     private let userDefaultsKeyUserID = "appleUserID"
     private let userDefaultsKeyFullName = "appleFullName"
+    private let userDefaultsKeyDidShowNotifPrompt = "didShowNotificationPromptForUser"
 
     init() {
         // Load persisted user ID
@@ -51,7 +52,8 @@ final class AuthStore: ObservableObject {
         self.fullName = nil
         UserDefaults.standard.removeObject(forKey: userDefaultsKeyUserID)
         UserDefaults.standard.removeObject(forKey: userDefaultsKeyFullName)
+        // Reset the notification prompt marker; next user can see it once
+        UserDefaults.standard.removeObject(forKey: userDefaultsKeyDidShowNotifPrompt)
         self.isAuthenticated = false
     }
 }
-

@@ -11,6 +11,7 @@ import SwiftUI
 struct TriggerApp: App {
     @StateObject private var eventStore = EventStore()
     @StateObject private var authStore = AuthStore()
+    @StateObject private var habitStore = HabitStore()
 
     var body: some Scene {
         WindowGroup {
@@ -18,6 +19,7 @@ struct TriggerApp: App {
                 if authStore.isAuthenticated {
                     ContentView()
                         .environmentObject(eventStore)
+                        .environmentObject(habitStore)
                 } else {
                     SignInWithAppleView()
                 }

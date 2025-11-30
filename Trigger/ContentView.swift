@@ -15,6 +15,13 @@ struct ContentView: View {
 
     // Read the shared store from the environment (provided by TriggerApp)
     @EnvironmentObject private var eventStore: EventStore
+    @EnvironmentObject private var authStore: AuthStore
+    @EnvironmentObject private var habitStore: HabitStore
+
+    // One-time notification prompt flag per signed-in user
+    // Key includes the Apple user ID, so different users can see it once each.
+    @AppStorage("didShowNotificationPromptForUser") private var didShowNotificationPromptForUser: String = ""
+    @State private var showNotificationPrompt: Bool = false
 
     // Controls the radial distance of the satellite buttons from the main "+"
     private let satelliteDistance: CGFloat = 96
@@ -37,6 +44,11 @@ struct ContentView: View {
     // Deletion confirmation state
     @State private var eventPendingDeletion: Event? = nil
     @State private var showDeleteDialog: Bool = false
+
+    // Debug-only habit confirmation state
+    @State private var habitPendingCompletion: Event? = nil
+    @State private var showHabitConfirmDialog: Bool = false
+    @State private var showWellDoneToast: Bool = false
 
     // Fixed 24-hour parser for any future string-to-Date conversions (not used by DatePicker flow)
     private static let fixed24hParser: DateFormatter = {
@@ -104,6 +116,11 @@ struct ContentView: View {
                         onTapDelete: { event in
                             eventPendingDeletion = event
                             showDeleteDialog = true
+                        },
+                        onTapHabitCheckmark: { habit in
+                            // Debug-only confirmation flow
+                            habitPendingCompletion = habit
+                            showHabitConfirmDialog = true
                         }
                     )
                     .padding(.top, 12)
@@ -111,6 +128,51 @@ struct ContentView: View {
                     Spacer(minLength: 0)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+                // Notification prompt overlay (shown only once per authenticated user)
+                if showNotificationPrompt {
+                    NotificationPermissionPrompt(
+                        onAllow: {
+                            Task {
+                                // Request system permission
+                                _ = await NotificationPermissionManager.shared.requestAuthorization()
+                                markPromptShownForCurrentUser()
+                                withAnimation(.easeInOut) {
+                                    showNotificationPrompt = false
+                                }
+                            }
+                        },
+                        onNotNow: {
+                            markPromptShownForCurrentUser()
+                            withAnimation(.easeInOut) {
+                                showNotificationPrompt = false
+                            }
+                        }
+                    )
+                    .transition(.opacity.combined(with: .scale))
+                }
+
+                // Debug-only "Well done!" toast
+                if showWellDoneToast {
+                    Text("Well done!")
+                        .font(.system(.headline, design: .rounded).weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(.ultraThinMaterial)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 6)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                        .padding(.top, 12)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .padding(.horizontal, 20)
+                }
             }
             // Floating action area overlay
             .overlay(alignment: .bottomTrailing) {
@@ -233,6 +295,37 @@ struct ContentView: View {
                     Text("“\(event.title)” will be removed from your schedule and from this device.")
                 }
             )
+            // Debug-only confirmation dialog for habit completion
+            .confirmationDialog(
+                "Mark habit as completed?",
+                isPresented: $showHabitConfirmDialog,
+                presenting: habitPendingCompletion,
+                actions: { habit in
+                    Button("Yes", role: .none) {
+                        // Persist last completed timestamp for this habit
+                        habitStore.markCompleted(eventID: habit.id, at: Date())
+
+                        // Debug: show a short toast
+                        withAnimation(.easeInOut) {
+                            showWellDoneToast = true
+                        }
+                        // Auto-hide after a short delay
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                            withAnimation(.easeInOut) {
+                                showWellDoneToast = false
+                            }
+                        }
+                        habitPendingCompletion = nil
+                    }
+                    Button("No", role: .cancel) {
+                        // Dismiss only
+                        habitPendingCompletion = nil
+                    }
+                },
+                message: { habit in
+                    Text("“\(habit.title)”\nWas this habit completed?")
+                }
+            )
             // Hidden navigation trigger to EditDebugView
             .background(
                 NavigationLink(
@@ -244,6 +337,40 @@ struct ContentView: View {
                 }
                 .hidden()
             )
+        }
+        .task {
+            // Decide if we should show the prompt for this user when ContentView appears.
+            await maybeShowNotificationPromptOnFirstLogin()
+        }
+    }
+
+    private func maybeShowNotificationPromptOnFirstLogin() async {
+        // Need a stable user ID to track per-user prompt
+        guard let userID = authStore.appleUserID, !userID.isEmpty else { return }
+
+        // If the stored user id matches current user, we already showed it.
+        if didShowNotificationPromptForUser == userID {
+            return
+        }
+
+        // If already authorized/denied, skip showing the educational prompt.
+        let status = await NotificationPermissionManager.shared.currentStatus()
+        switch status {
+        case .notDetermined:
+            await MainActor.run {
+                withAnimation(.easeInOut) {
+                    showNotificationPrompt = true
+                }
+            }
+        case .authorized, .provisional, .ephemeral, .denied:
+            // Mark as shown to avoid prompting again
+            markPromptShownForCurrentUser()
+        }
+    }
+
+    private func markPromptShownForCurrentUser() {
+        if let userID = authStore.appleUserID, !userID.isEmpty {
+            didShowNotificationPromptForUser = userID
         }
     }
 
@@ -306,6 +433,7 @@ private struct TimelineDayView: View {
     let eventMinDurationMinutes: Int
     var onLongPressEvent: (Event) -> Void
     var onTapDelete: (Event) -> Void
+    var onTapHabitCheckmark: (Event) -> Void
 
     @State private var nowID: Int? = nil // hour index to scroll to
 
@@ -334,7 +462,8 @@ private struct TimelineDayView: View {
                         hourLabelWidth: hourLabelWidth,
                         eventMinDurationMinutes: eventMinDurationMinutes,
                         onLongPressEvent: onLongPressEvent,
-                        onTapDelete: onTapDelete
+                        onTapDelete: onTapDelete,
+                        onTapHabitCheckmark: onTapHabitCheckmark
                     )
                     .zIndex(1)
 
@@ -432,6 +561,7 @@ private struct TimelineDayView: View {
         let eventMinDurationMinutes: Int
         var onLongPressEvent: (Event) -> Void
         var onTapDelete: (Event) -> Void
+        var onTapHabitCheckmark: (Event) -> Void
 
         var body: some View {
             // Fixed 24-hour canvas height so children do not expand the container
@@ -469,7 +599,10 @@ private struct TimelineDayView: View {
                                 height: habitFrame.height,
                                 hourLabelWidth: hourLabelWidth,
                                 rightOutset: habitRightOutset,
-                                alignToTop: hb.attachPosition == .before
+                                alignToTop: hb.attachPosition == .before,
+                                onTapCheckmark: {
+                                    onTapHabitCheckmark(hb)
+                                }
                             )
                             .position(x: trackWidth / 2, y: habitFrame.y + habitFrame.height / 2)
                             .frame(width: trackWidth, height: habitFrame.height, alignment: .topLeading)
@@ -655,6 +788,7 @@ private struct TimelineDayView: View {
         let hourLabelWidth: CGFloat
         let rightOutset: CGFloat
         let alignToTop: Bool
+        var onTapCheckmark: () -> Void
 
         var body: some View {
             GeometryReader { geo in
@@ -675,11 +809,34 @@ private struct TimelineDayView: View {
                         )
                         .shadow(color: Color.green.opacity(0.18), radius: 6, x: 0, y: 3)
 
-                    Text(habit.title)
-                        .font(.system(.caption, design: .rounded).weight(.semibold))
-                        .foregroundStyle(Color("green_L5").opacity(0.9))
-                        .lineLimit(1)
-                        .padding(.horizontal, 10)
+                    HStack(spacing: 8) {
+                        Text(habit.title)
+                            .font(.system(.caption, design: .rounded).weight(.semibold))
+                            .foregroundStyle(Color("green_L5").opacity(0.9))
+                            .lineLimit(1)
+                            .padding(.leading, 10)
+
+                        Spacer(minLength: 6)
+
+                        // Debug checkmark button styled like event trash icon
+                        Button {
+                            onTapCheckmark()
+                        } label: {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.secondary)
+                                .padding(8)
+                                .background(
+                                    Circle()
+                                        .fill(.ultraThinMaterial)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Mark habit complete")
+                        .accessibilityHint("Shows a confirmation for debugging")
+                        .padding(.trailing, 8)
+                        
+                    }
                 }
                 .frame(width: habitWidth, height: height, alignment: .leading)
                 // Center horizontally within the track
@@ -742,5 +899,7 @@ private struct AvatarCircle: View {
 #Preview {
     ContentView()
         .environmentObject(EventStore())
+        .environmentObject(AuthStore())
+        .environmentObject(HabitStore())
 }
 

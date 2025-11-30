@@ -10,6 +10,17 @@ import SwiftUI
 struct UserProfileView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authStore: AuthStore
+    @EnvironmentObject private var eventStore: EventStore
+    @EnvironmentObject private var habitStore: HabitStore
+
+    // Formatter for "last completed" time, respects locale 12/24h
+    private static let completionTimeFormatter: DateFormatter = {
+        let df = DateFormatter()
+        df.locale = .current
+        df.timeStyle = .short
+        df.dateStyle = .none
+        return df
+    }()
 
     var body: some View {
         ZStack {
@@ -94,6 +105,53 @@ struct UserProfileView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.horizontal, 20)
 
+                // Habits section
+                VStack(spacing: 12) {
+                    HStack {
+                        Text("Your habits")
+                            .font(.system(.title3, design: .rounded).weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 20)
+
+                    // Glass container list
+                    VStack {
+                        if userHabits.isEmpty {
+                            Text("No habits yet")
+                                .font(.system(.subheadline, design: .rounded))
+                                .foregroundStyle(.secondary)
+                                .padding(16)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                        } else {
+                            ScrollView(.vertical, showsIndicators: true) {
+                                LazyVStack(spacing: 10) {
+                                    ForEach(userHabits) { habit in
+                                        HabitRow(
+                                            title: habit.title,
+                                            anchorTitle: anchorTitle(for: habit),
+                                            completionStatus: completionStatus(for: habit)
+                                        )
+                                    }
+                                }
+                                .padding(12)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 120)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(.ultraThinMaterial)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 8)
+                    .padding(.horizontal, 20)
+                }
+                .padding(.top, 20)
+
                 Spacer()
 
                 // Bottom fixed Sign Out button
@@ -133,12 +191,90 @@ struct UserProfileView: View {
             return "Your Name"
         }
     }
+
+    // MARK: - Habits data
+
+    private var userHabits: [Event] {
+        eventStore.events
+            .filter { $0.isHabit }
+            .sorted { lhs, rhs in
+                let la = anchorTitle(for: lhs)
+                let ra = anchorTitle(for: rhs)
+                if la != ra { return la.localizedCaseInsensitiveCompare(ra) == .orderedAscending }
+                let lp = lhs.attachPosition == .before ? 0 : 1
+                let rp = rhs.attachPosition == .before ? 0 : 1
+                if lp != rp { return lp < rp }
+                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            }
+    }
+
+    private func anchorTitle(for habit: Event) -> String {
+        guard let anchorID = habit.anchorEventID,
+              let anchor = eventStore.events.first(where: { $0.id == anchorID }) else {
+            return "Unknown event"
+        }
+        return anchor.title
+    }
+
+    // Build the "Last completed" status text for a habit from HabitStore
+    private func completionStatus(for habit: Event) -> String {
+        if let last = habitStore.habit(forEventID: habit.id)?.lastCompletedAt {
+            let t = UserProfileView.completionTimeFormatter.string(from: last)
+            return "Last completed: \(t)"
+        } else {
+            return "Not completed yet"
+        }
+    }
+}
+
+// MARK: - Small HabitRow used in profile
+
+private struct HabitRow: View {
+    let title: String
+    let anchorTitle: String
+    let completionStatus: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.system(.body, design: .rounded).weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+
+                Spacer()
+
+                Text(completionStatus)
+                    .font(.system(.footnote, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Text("Attached to: \(anchorTitle)")
+                .font(.system(.footnote, design: .rounded))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.06), radius: 6, x: 0, y: 3)
+    }
 }
 
 #Preview {
     NavigationStack {
         UserProfileView()
             .environmentObject(AuthStore())
+            .environmentObject(EventStore())
+            .environmentObject(HabitStore())
     }
 }
-

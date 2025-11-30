@@ -14,8 +14,8 @@
             filePath = "Trigger/ContentView.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "22"
-            endingLineNumber = "22"
+            startingLineNumber = "28"
+            endingLineNumber = "28"
             landmarkName = "ContentView"
             landmarkType = "14">
          </BreakpointContent>
@@ -30,9 +30,9 @@
             filePath = "Trigger/ContentView.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "648"
-            endingLineNumber = "648"
-            landmarkName = "EventBlock"
+            startingLineNumber = "782"
+            endingLineNumber = "782"
+            landmarkName = "TimelineDayView"
             landmarkType = "14">
          </BreakpointContent>
       </BreakpointProxy>
