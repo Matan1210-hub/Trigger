@@ -65,7 +65,7 @@ struct HabitNotificationScheduler {
 
         // Replace any existing request for this habit
         let center = UNUserNotificationCenter.current()
-        await center.removePendingNotificationRequests(withIdentifiers: [identifier])
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
 
         do {
             try await center.add(request)
@@ -77,7 +77,7 @@ struct HabitNotificationScheduler {
     /// Cancel any pending reminder for the given habit id.
     static func cancelReminder(forHabitID id: UUID) async {
         let identifier = notificationIdentifier(forHabitID: id)
-        await UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
     }
 
     // MARK: - Internal scheduling logic
@@ -207,4 +207,3 @@ struct HabitNotificationScheduler {
         "habit-reminder-\(id.uuidString)"
     }
 }
-

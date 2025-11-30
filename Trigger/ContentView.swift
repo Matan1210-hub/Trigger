@@ -230,6 +230,7 @@ struct ContentView: View {
                             withAnimation(expandAnimation) {
                                 isExpanded = false
                             }
+                            // Trigger navigation to EditView
                             navigateToEditDebug = true
                         }
                         .offset(satelliteOffset(angleDegrees: 360, distance: satelliteDistance))
@@ -326,17 +327,11 @@ struct ContentView: View {
                     Text("“\(habit.title)”\nWas this habit completed?")
                 }
             )
-            // Hidden navigation trigger to EditDebugView
-            .background(
-                NavigationLink(
-                    destination: EditView()
-                        .toolbar(.hidden, for: .navigationBar),
-                    isActive: $navigateToEditDebug
-                ) {
-                    EmptyView()
-                }
-                .hidden()
-            )
+            // Attach navigation destination to this NavigationStack
+            .navigationDestination(isPresented: $navigateToEditDebug) {
+                EditView()
+                    .toolbar(.hidden, for: .navigationBar)
+            }
         }
         .task {
             // Decide if we should show the prompt for this user when ContentView appears.
@@ -902,4 +897,3 @@ private struct AvatarCircle: View {
         .environmentObject(AuthStore())
         .environmentObject(HabitStore())
 }
-

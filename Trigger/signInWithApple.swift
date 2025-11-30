@@ -158,16 +158,23 @@ private struct SignInWithAppleButtonRepresentable: UIViewRepresentable {
                     return anyWindow
                 }
 
+                // Create a transient window attached to the found scene
                 let transient = UIWindow(windowScene: windowScene)
                 return transient
             }
 
+            // As a last resort, avoid deprecated UIWindow() init by attempting to find any window from any scene
             assertionFailure("No connected UIWindowScene available for presentation.")
-            if #available(iOS 26.0, *) {
-                return ASPresentationAnchor()
-            } else {
-                return UIWindow()
+            if let anyWindow = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .flatMap({ $0.windows })
+                .first {
+                return anyWindow
             }
+
+            // If truly nothing is available, create a new window only when we have a scene (should be extremely rare)
+            // Returning a new, unattached UIWindow() would use a deprecated initializer, so we avoid it.
+            fatalError("Unable to obtain a presentation anchor for ASAuthorizationController.")
         }
     }
 }
@@ -176,4 +183,3 @@ private struct SignInWithAppleButtonRepresentable: UIViewRepresentable {
     SignInWithAppleView()
         .environmentObject(AuthStore())
 }
-
