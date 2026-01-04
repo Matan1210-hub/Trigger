@@ -129,29 +129,6 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-                // Notification prompt overlay (shown only once per authenticated user)
-                if showNotificationPrompt {
-                    NotificationPermissionPrompt(
-                        onAllow: {
-                            Task {
-                                // Request system permission
-                                _ = await NotificationPermissionManager.shared.requestAuthorization()
-                                markPromptShownForCurrentUser()
-                                withAnimation(.easeInOut) {
-                                    showNotificationPrompt = false
-                                }
-                            }
-                        },
-                        onNotNow: {
-                            markPromptShownForCurrentUser()
-                            withAnimation(.easeInOut) {
-                                showNotificationPrompt = false
-                            }
-                        }
-                    )
-                    .transition(.opacity.combined(with: .scale))
-                }
-
                 // Debug-only "Well done!" toast
                 if showWellDoneToast {
                     Text("Well done!")
@@ -333,34 +310,7 @@ struct ContentView: View {
                     .toolbar(.hidden, for: .navigationBar)
             }
         }
-        .task {
-            // Decide if we should show the prompt for this user when ContentView appears.
-            await maybeShowNotificationPromptOnFirstLogin()
-        }
-    }
-
-    private func maybeShowNotificationPromptOnFirstLogin() async {
-        // Need a stable user ID to track per-user prompt
-        guard let userID = authStore.appleUserID, !userID.isEmpty else { return }
-
-        // If the stored user id matches current user, we already showed it.
-        if didShowNotificationPromptForUser == userID {
-            return
-        }
-
-        // If already authorized/denied, skip showing the educational prompt.
-        let status = await NotificationPermissionManager.shared.currentStatus()
-        switch status {
-        case .notDetermined:
-            await MainActor.run {
-                withAnimation(.easeInOut) {
-                    showNotificationPrompt = true
-                }
-            }
-        case .authorized, .provisional, .ephemeral, .denied:
-            // Mark as shown to avoid prompting again
-            markPromptShownForCurrentUser()
-        }
+        
     }
 
     private func markPromptShownForCurrentUser() {

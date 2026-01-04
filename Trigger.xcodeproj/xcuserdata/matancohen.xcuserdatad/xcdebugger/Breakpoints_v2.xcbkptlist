@@ -30,8 +30,8 @@
             filePath = "Trigger/ContentView.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "777"
-            endingLineNumber = "777"
+            startingLineNumber = "727"
+            endingLineNumber = "727"
             landmarkName = "TimelineDayView"
             landmarkType = "14">
          </BreakpointContent>
